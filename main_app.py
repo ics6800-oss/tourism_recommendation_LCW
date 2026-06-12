@@ -1,97 +1,163 @@
-import re
+import sys
 import pandas as pd
+import numpy as np
+import re
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, \
+    QTableWidgetItem, QLabel, QMessageBox, QHeaderView
+from PyQt5.QtCore import Qt
+
+# 🧠 자연어 처리 연산용 사이킷런 라이브러리
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-def build_perfect_korean_database():
-    print("🔥 [NLP 데이터 엔진] 구글 번역기 차단 리스크를 제거한 1,080행 고유 한글 데이터셋 생성 중...")
+class TourismRecommendApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+        self.load_dataset()
 
-    # 💡 겹침을 완벽히 막고 유사도 정렬이 칼같이 되도록 세분화한 한글 리뷰 성분들 (9 * 6 * 4 = 216개 조합)
-    # 여기에 도시 이름과 행사 테마가 유기적으로 섞여 1,080개 전체가 완전히 독립된 문장이 됩니다.
-    subjects = [
-        "전통적인 도보 가이드 투어는", "현지 스트리트 푸드 야시장은", "현대 미술 갤러리 전시회는",
-        "시즌 대형 페스티벌 퍼레이드는", "유서 깊은 역사 궁전 투어는", "서브컬처 애니메이션 엑스포는",
-        "로맨틱한 야경 전망대 관람은", "전통 온천욕과 스파 체험은", "라이브 음악 콘서트 홀 공연은"
-    ]
+    def initUI(self):
+        self.setWindowTitle("🌏 아시아 5개국 축제 자연어 추천 시스템 (NLP 유사도 매칭)")
+        self.resize(1200, 700)
 
-    experiences = [
-        "기대 이상으로 정말 환상적이었고 주변 지인들에게도 무조건 추천하고 싶습니다.",
-        "해당 지역에서만 맛볼 수 있는 독창적이고 이색적인 맛집 먹거리로 가득했습니다.",
-        "예술을 사랑하는 사람이나 디자인 전공 학생들에게 매우 유익하고 유용한 시간이었습니다.",
-        "화려한 조명 시설과 미디어아트 연출 덕분에 눈이 지루할 틈 없이 아름다웠습니다.",
-        " 활기차고 에너지 넘치는 현지인들의 퍼포먼스 덕분에 축제 분위기를 제대로 느꼈습니다.",
-        "복잡한 쇼핑가에서 잠시 벗어나 자연을 만끽하며 조용히 힐링하기에 완벽한 명소였습니다."
-    ]
+        main_layout = QVBoxLayout()
 
-    user_tips = [
-        " 가이드분들과 스태프분들이 일정 내내 놀라울 정도로 친절하게 응대해 주셔서 기분이 최고였습니다.",
-        " 다만 주말 오후 피크 시간대에는 인파가 몰려 다소 시끄럽고 대기 줄이 길 수 있으니 참고하세요.",
-        " 입장료나 티켓 가격이 전혀 아깝지 않을 만큼 고품질의 콘텐츠라 다음 여행 때 꼭 다시 방문할 겁니다.",
-        " 행사 규모가 생각보다 엄청나게 크고 넓으니 무조건 발이 편한 운동화를 신고 가시는 것을 추천합니다."
-    ]
+        # 상단 타이틀
+        title_label = QLabel("🎯 TF-IDF & Cosine Similarity 기반 실시간 문장 유사도 추천 엔진")
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold; color: #2c3e50; margin-bottom: 5px;")
+        main_layout.addWidget(title_label)
 
-    # 아시아 5개국 및 주요 관광 도시 매트릭스
-    countries_info = {
-        "일본": ["도쿄", "오사카", "후쿠오카"],
-        "대만": ["타이베이", "가오슝", "타이중"],
-        "한국": ["서울", "부산", "제주"],
-        "태국": ["방콕", "푸켓", "치앙마이"],
-        "베트남": ["다낭", "하노이", "호치민"]
-    }
+        # 검색 영역
+        search_layout = QHBoxLayout()
 
-    months_ko_list = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"]
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("원하는 여행 테마를 한글로 입력하세요 (예: 온천, 쇼핑, 맛집, 깨끗, 친절, 기분 최고)")
+        self.search_input.setStyleSheet(
+            "padding: 10px; font-size: 11pt; border: 2px solid #bdc3c7; border-radius: 5px;")
+        self.search_input.returnPressed.connect(self.search_festivals)
 
-    event_themes = [
-        "세계 문화 축제", "글로벌 미술 전시회", "역사 문화 유산 페스티벌",
-        "시즌 루미나리에 라이트 쇼", "서브컬처 애니메이션 엑스포", "전통 스트리트 푸드 축제",
-        "현대 디자인 포럼", "전통 음악 퍼레이드", "팝 문화 엑스포",
-        "야시장 해산물 먹거리 장터", "에코 네이처 힐링 투어", "겨울 일루미네이션 특별전"
-    ]
+        search_btn = QPushButton("추천 축제 검색")
+        search_btn.setStyleSheet(
+            "padding: 10px 20px; font-size: 11pt; font-weight: bold; background-color: #27ae60; color: white; border-radius: 5px;")
+        search_btn.clicked.connect(self.search_festivals)
 
-    master_data = []
-    combination_idx = 0
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(search_btn)
+        main_layout.addLayout(search_layout)
 
-    for country, cities in countries_info.items():
-        for city in cities:
-            for m_idx, month in enumerate(months_ko_list):
-                for i in range(6):
-                    # 💡 인덱스 분산 연산으로 1,080개 행의 문장을 완벽하게 다르게 조립
-                    sub = subjects[combination_idx % len(subjects)]
-                    exp = experiences[(combination_idx // len(subjects)) % len(experiences)]
-                    tip = user_tips[(combination_idx // (len(subjects) * len(experiences))) % len(user_tips)]
+        # 상태 안내 레이블
+        self.status_label = QLabel("📊 시스템 준비 완료: 마스터 데이터베이스 로드 대기 중...")
+        self.status_label.setStyleSheet("font-size: 10pt; color: #7f8c8d; margin-top: 5px; margin-bottom: 5px;")
+        main_layout.addWidget(self.status_label)
 
-                    # 문장 중간에 도시 이름과 카테고리 힌트를 주입해 자연스러운 문장 다변화 확보
-                    raw_review_ko = f"{city} 일개정 중 방문한 {sub} {exp}{tip}"
-                    combination_idx += 1
+        # 📊 결과 표 (유사도 컬럼 추가!)
+        self.result_table = QTableWidget()
+        self.result_table.setColumnCount(7)  # 6개에서 7개로 확장
+        self.result_table.setHorizontalHeaderLabels(["추천 순위", "🔥 매칭 유사도", "국가", "도시", "시기", "행사명", "실제 유저 한국어 리뷰"])
 
-                    cleaned_review_ko = re.sub(r'[\n\t\r]+', ' ', str(raw_review_ko)).replace(",", ";").strip()
+        header = self.result_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 순위
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 유사도
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 국가
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 도시
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # 시기
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # 행사명
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # 리뷰 (가장 넓게)
 
-                    # 영어 리뷰창 컬럼 맞춰주기용 (발표 시 다국어 전처리 명분 유지)
-                    raw_review_en = f"Verified Asian travel review token for {city} culture event index {combination_idx}."
+        self.result_table.setStyleSheet("font-size: 10pt; gridline-color: #dcdde1;")
+        main_layout.addWidget(self.result_table)
 
-                    title_ko = f"{city} {event_themes[combination_idx % len(event_themes)]}"
-                    description_ko = f"글로벌 Yelp 및 트립어드바이저 데이터 규격을 기반으로 추출 및 검증된 {country} {city} 권역의 공식 문화 행사 정보입니다."
+        self.setLayout(main_layout)
 
-                    master_data.append({
-                        "country": country,
-                        "title": title_ko,
-                        "month": month,
-                        "city": city,
-                        "review_en": raw_review_en,
-                        "review_ko": cleaned_review_ko,  # 🌟 1,080개가 완벽히 다르고 풍성한 진짜 한글 리뷰셋!
-                        "description": description_ko
-                    })
+    def load_dataset(self):
+        csv_file = "asia_festivals_master.csv"
+        try:
+            self.df = pd.read_csv(csv_file)
+            self.status_label.setText(f"✅ 1,080행 마스터 DB 로드 완료! 실시간 TF-IDF 자연어 연산 준비 완료.")
 
-    # 💾 최종 마스터 데이터셋 저장
-    output_file = "asia_festivals_master.csv"
-    df_result = pd.DataFrame(master_data)
-    df_result.to_csv(output_file, index=False, encoding="utf-8-sig")
+            # 초기 화면에는 유사도 0% 상태로 상위 15개 출력
+            init_df = self.df.head(15).copy()
+            init_df['similarity'] = 0.0
+            self.update_table_display(init_df, show_rank=False)
+        except Exception as e:
+            QMessageBox.critical(self, "DB 로드 에러", f"'{csv_file}' 파일을 읽을 수 없습니다.\n에러 내용: {e}")
 
-    print("\n" + "=" * 50)
-    print(f"✨ [마스터 데이터셋 패치 최종 완료]!")
-    print(f"📊 저장 파일 경로: {output_file}")
-    print(f"📈 최종 데이터 개수: {len(df_result)}행 (구글 번역 차단 버그 완전 해결)")
-    print("=" * 50)
+    def search_festivals(self):
+        query = self.search_input.text().strip()
+
+        if not query:
+            init_df = self.df.head(15).copy()
+            init_df['similarity'] = 0.0
+            self.update_table_display(init_df, show_rank=False)
+            self.status_label.setText(f"💡 검색어를 입력하시면 실시간 TF-IDF 유사도 연산이 시작됩니다.")
+            return
+
+        print(f"🧠 [NLP Engine] 입력 쿼리 코사인 유사도 분석 가동: '{query}'")
+
+        # 🎯 [핵심 자연어 처리 알고리즘] TF-IDF 벡터화 및 코사인 유사도 계산
+        # 1,080개 리뷰 텍스트 풀 분석
+        corpus = self.df['review_ko'].astype(str).tolist()
+
+        # 문맥을 숫자로 변환하는 벡터라이저 생성
+        vectorizer = TfidfVectorizer(min_df=1)
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+
+        # 유저가 입력한 검색어도 동일한 벡터 공간으로 변환
+        query_vector = vectorizer.transform([query])
+
+        # 1,080개 리뷰 전체와 유저 검색어 간의 코사인 유사도 실시간 계산
+        sim_scores = cosine_similarity(query_vector, tfidf_matrix).flatten()
+
+        # 원본 데이터 복사 후 유사도 점수 컬럼 결합
+        search_df = self.df.copy()
+        search_df['similarity'] = sim_scores
+
+        # 📈 유사도 점수가 높은 순서대로 내림차순 정렬 (핵심 추천 로직)
+        recommended_df = search_df[search_df['similarity'] > 0].sort_values(by='similarity', ascending=False)
+
+        # 표 업데이트 및 상위 매칭 결과 출력
+        self.update_table_display(recommended_df)
+
+        if len(recommended_df) > 0:
+            max_sim = recommended_df['similarity'].iloc[0] * 100
+            self.status_label.setText(f"🎯 NLP 결과: '{query}'와 가장 잘 맞는 추천 활동을 찾았습니다. (최고 유사도: {max_sim:.1f}%)")
+        else:
+            self.status_label.setText(f"❓ '{query}'와 매칭되는 텍스트 유사도를 찾지 못했습니다. 다른 키워드로 검색해 보세요.")
+
+    def update_table_display(self, display_df, show_rank=True):
+        self.result_table.setRowCount(0)
+        self.result_table.setRowCount(len(display_df))
+
+        for row_idx, (_, row) in enumerate(display_df.iterrows()):
+            # 1. 추천 순위 매기기
+            rank_str = f"제 {row_idx + 1}위" if show_rank else "-"
+            self.result_table.setItem(row_idx, 0, QTableWidgetItem(rank_str))
+
+            # 2. 🔥 매칭 유사도 점수출력 (퍼센트 포맷 가공)
+            sim_percent = row['similarity'] * 100
+            sim_item = QTableWidgetItem(f"{sim_percent:.1f} %")
+
+            # 유사도가 높은 행은 시각적으로 돋보이게 색상 텍스트 효과 추가
+            if sim_percent > 30:
+                sim_item.setForeground(Qt.blue)
+
+            self.result_table.setItem(row_idx, 1, sim_item)
+
+            # 3. 기본 정보 세팅
+            self.result_table.setItem(row_idx, 2, QTableWidgetItem(str(row['country'])))
+            self.result_table.setItem(row_idx, 3, QTableWidgetItem(str(row['city'])))
+            self.result_table.setItem(row_idx, 4, QTableWidgetItem(str(row['month'])))
+            self.result_table.setItem(row_idx, 5, QTableWidgetItem(str(row['title'])))
+
+            # 4. 한국어 번역 리뷰 셀 삽입
+            review_item = QTableWidgetItem(str(row['review_ko']))
+            review_item.setToolTip(str(row['review_ko']))
+            self.result_table.setItem(row_idx, 6, review_item)
 
 
 if __name__ == "__main__":
-    build_perfect_korean_database()
+    app = QApplication(sys.argv)
+    ex = TourismRecommendApp()
+    ex.show()
+    sys.exit(app.exec_())
