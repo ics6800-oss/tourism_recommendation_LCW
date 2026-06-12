@@ -145,13 +145,26 @@ def main():
         review_list = data.get("review_list", [])[:REVIEWS_PER_PRODUCT]
         for r in review_list:
             review_text = r.get("review") or ""
-            if review_text:
-                all_rows.append({
-                    "country":  "japan",
-                    "city":     city,
-                    "activity": activity_name,
-                    "review":   review_text,
-                })
+            if not review_text:
+                continue
+
+            participated = r.get("participated_date") or ""
+            month = int(participated.split("-")[1]) if participated and len(participated.split("-")) >= 2 else None
+
+            ratings = r.get("ratings")
+            if isinstance(ratings, dict):
+                rating = ratings.get("overall") or ratings.get("total") or next(iter(ratings.values()), None)
+            else:
+                rating = ratings
+
+            all_rows.append({
+                "country":  "japan",
+                "city":     city,
+                "activity": activity_name,
+                "review":   review_text,
+                "month":    month,
+                "rating":   rating,
+            })
 
     if not all_rows:
         print("데이터 없음.")
